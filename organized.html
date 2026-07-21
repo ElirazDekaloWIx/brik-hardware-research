@@ -132,7 +132,10 @@ code{background:var(--bg2); border:1px solid var(--line); border-radius:6px; pad
 .imgup-zone.drag{border-color:var(--accent); background:var(--accent-soft); transform:scale(1.01)}
 .imgup-ic{font-size:34px; margin-bottom:8px}
 .imgup-hint{font-size:13.5px; color:var(--muted); line-height:1.6}
-.imgup-status{margin-top:12px; font-size:13px; color:var(--accent); min-height:1.2em; text-align:center}
+.imgup-paste{display:block; width:100%; margin-top:12px; padding:11px; font-family:inherit; font-size:13.5px; font-weight:700;
+  cursor:pointer; background:var(--accent); color:#fff; border:none; border-radius:10px; transition:.15s}
+.imgup-paste:hover{background:var(--ink)}
+.imgup-status{margin-top:12px; font-size:13px; color:var(--accent); min-height:1.2em; text-align:center; line-height:1.5}
 .pcard-img img{width:100%; height:100%; object-fit:cover}
 .pcard-body{padding:12px 13px 14px; display:flex; flex-direction:column; gap:7px; flex:1}
 .pcard-top{display:flex; justify-content:space-between; align-items:baseline; gap:8px}
@@ -841,10 +844,11 @@ body.cart-open{overflow:hidden}
   var title = el("div", "imgup-title", "העלאת תמונה למוצר");
   var zone = el("div", "imgup-zone"); zone.setAttribute("tabindex", "0");
   var ic = el("div", "imgup-ic", "🖼️");
-  var hint = el("div", "imgup-hint", "גררו לכאן תמונה · הדביקו (Ctrl+V) · או לחצו לבחירת קובץ");
+  var hint = el("div", "imgup-hint", "גררו לכאן תמונה · או לחצו לבחירת קובץ");
+  var pasteBtn = el("button", "imgup-paste", "📋 הדבק תמונה מהלוח (Ctrl+V)"); pasteBtn.setAttribute("type", "button");
   var statusEl = el("div", "imgup-status", "");
   zone.appendChild(ic); zone.appendChild(hint);
-  modal.appendChild(closeBtn); modal.appendChild(title); modal.appendChild(zone); modal.appendChild(statusEl);
+  modal.appendChild(closeBtn); modal.appendChild(title); modal.appendChild(zone); modal.appendChild(pasteBtn); modal.appendChild(statusEl);
   overlay.appendChild(modal); document.body.appendChild(overlay);
 
   var pending = null;
@@ -877,14 +881,32 @@ body.cart-open{overflow:hidden}
   // stop the browser from opening a dropped file when the modal is open
   document.addEventListener("dragover", function (e) { if (overlay.classList.contains("open")) e.preventDefault(); });
   document.addEventListener("drop", function (e) { if (overlay.classList.contains("open")) e.preventDefault(); });
-  // paste image from clipboard while the modal is open
+  // paste (Ctrl+V) while the modal is open — check both files and items
   document.addEventListener("paste", function (e) {
     if (!overlay.classList.contains("open")) return;
-    var items = (e.clipboardData && e.clipboardData.items) || [];
-    for (var i = 0; i < items.length; i++) {
-      if (items[i].type && items[i].type.indexOf("image") === 0) { var f = items[i].getAsFile(); if (f) { e.preventDefault(); handleFile(f); return; } }
-    }
+    var cd = e.clipboardData; if (!cd) return;
+    if (cd.files && cd.files.length) { for (var i = 0; i < cd.files.length; i++) { if (/^image\//.test(cd.files[i].type)) { e.preventDefault(); handleFile(cd.files[i]); return; } } }
+    var items = cd.items || [];
+    for (var j = 0; j < items.length; j++) { if (items[j].type && items[j].type.indexOf("image") === 0) { var f = items[j].getAsFile(); if (f) { e.preventDefault(); handleFile(f); return; } } }
+    statusEl.textContent = "לא נמצאה תמונה בהדבקה — העתיקו תמונה (לא קובץ), או גררו/בחרו קובץ.";
   });
+  // explicit "paste from clipboard" button — async Clipboard API (most reliable, no focus needed)
+  function readClipboard() {
+    if (!(navigator.clipboard && navigator.clipboard.read)) { statusEl.textContent = "הדבקה מהכפתור לא נתמכת כאן — נסו Ctrl+V, גרירה, או בחירת קובץ."; return; }
+    statusEl.textContent = "קורא מהלוח…";
+    navigator.clipboard.read().then(function (list) {
+      for (var i = 0; i < list.length; i++) {
+        var types = list[i].types || [];
+        for (var t = 0; t < types.length; t++) {
+          if (types[t].indexOf("image/") === 0) {
+            return list[i].getType(types[t]).then(function (blob) { handleFile(new File([blob], "pasted.png", { type: blob.type || "image/png" })); });
+          }
+        }
+      }
+      statusEl.textContent = "לא נמצאה תמונה בלוח. העתיקו תמונה (צילום מסך או 'העתק תמונה') ונסו שוב.";
+    }).catch(function () { statusEl.textContent = "הדפדפן חסם קריאת לוח — אשרו את הבקשה, או השתמשו ב-Ctrl+V / גרירה / בחירת קובץ."; });
+  }
+  pasteBtn.addEventListener("click", readClipboard);
   closeBtn.addEventListener("click", close);
   overlay.addEventListener("click", function (e) { if (e.target === overlay) close(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && overlay.classList.contains("open")) close(); });
